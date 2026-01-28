@@ -1,17 +1,19 @@
 import Dexie, { type Table } from 'dexie'
-import type { Clothing, UserProfile, OutfitHistory } from '@/types'
+import type { Clothing, UserProfile, OutfitHistory, ChatMessage } from '@/types'
 
 export class OutfitDatabase extends Dexie {
   clothes!: Table<Clothing>
   userProfile!: Table<UserProfile>
   outfitHistory!: Table<OutfitHistory>
+  chatMessages!: Table<ChatMessage>
 
   constructor() {
     super('OutfitAI')
-    this.version(1).stores({
+    this.version(2).stores({
       clothes: 'id, category, type, colorPrimary, warmthLevel, favorite, createdAt',
       userProfile: 'id',
       outfitHistory: 'id, occasion, createdAt',
+      chatMessages: 'id, createdAt',
     })
   }
 }
@@ -64,4 +66,25 @@ export async function addOutfitHistory(history: OutfitHistory): Promise<string> 
 
 export async function getOutfitHistory(limit = 20): Promise<OutfitHistory[]> {
   return await db.outfitHistory.orderBy('createdAt').reverse().limit(limit).toArray()
+}
+
+// 对话历史操作
+export async function addChatMessage(message: ChatMessage): Promise<string> {
+  // 保持最多10条记录
+  const count = await db.table('chatMessages').count()
+  if (count >= 10) {
+    const oldest = await db.table('chatMessages').orderBy('createdAt').first()
+    if (oldest) {
+      await db.table('chatMessages').delete(oldest.id)
+    }
+  }
+  return await db.table('chatMessages').add(message) as string
+}
+
+export async function getChatMessages(): Promise<ChatMessage[]> {
+  return await db.table('chatMessages').orderBy('createdAt').toArray()
+}
+
+export async function clearChatMessages(): Promise<void> {
+  await db.table('chatMessages').clear()
 }

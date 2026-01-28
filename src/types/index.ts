@@ -106,3 +106,48 @@ export interface OutfitRecommendation {
   occasion: string
   temperature: number
 }
+
+// 天气数据
+export interface WeatherCurrent {
+  temp: number           // 当前温度
+  feelsLike: number      // 体感温度
+  text: string           // 天气描述（晴、多云等）
+  icon: string           // 图标代码
+  humidity: number       // 湿度百分比
+  windDir: string        // 风向
+  windScale: string      // 风力等级
+}
+
+export interface WeatherForecast {
+  date: string           // 日期 YYYY-MM-DD
+  tempMin: number        // 最低温度
+  tempMax: number        // 最高温度
+  textDay: string        // 白天天气
+  textNight: string      // 夜间天气
+  iconDay: string        // 白天图标
+  iconNight: string      // 夜间图标
+}
+
+export interface WeatherData {
+  location: string       // 城市名称
+  current: WeatherCurrent
+  forecast: WeatherForecast[]  // 未来3天预报
+  cachedAt: number       // 缓存时间戳
+}
+
+// AI对话消息
+export interface ChatMessage {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  createdAt: Date
+}
+
+// 每日穿搭推荐缓存
+export interface DailyRecommendation {
+  date: string           // YYYY-MM-DD
+  recommendation: string // AI推荐内容
+  clothingIds: string[]  // 推荐的衣物ID
+  weather: WeatherCurrent
+  cachedAt: number
+}

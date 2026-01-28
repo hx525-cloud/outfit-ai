@@ -157,3 +157,90 @@ export async function virtualTryOn(
   // 返回生成的图片 base64
   return await callGemini(messages)
 }
+
+// 获取每日穿搭推荐
+export async function getDailyRecommendation(
+  clothes: Clothing[],
+  userProfile: UserProfile | null,
+  weather: { temp: number; feelsLike: number; text: string }
+): Promise<{ recommendation: string; clothingIds: string[] }> {
+  const clothesSummary = clothes.map((c) => ({
+    id: c.id,
+    name: c.name || c.type,
+    category: c.category,
+    type: c.type,
+    color: c.colorPrimary,
+    warmthLevel: c.warmthLevel,
+    style: c.style,
+  }))
+
+  const messages: GeminiMessage[] = [
+    {
+      role: 'user',
+      content: `作为专业穿搭顾问，请根据今日天气为用户推荐一套日常穿搭：
+
+天气情况：
+- 温度：${weather.temp}°C
+- 体感温度：${weather.feelsLike}°C
+- 天气：${weather.text}
+
+用户信息：
+- 性别：${userProfile?.gender || '未知'}
+- 身材类型：${userProfile?.bodyType || '标准'}
+
+可选衣物：
+${JSON.stringify(clothesSummary, null, 2)}
+
+请返回 JSON 格式：
+{
+  "recommendation": "简短的穿搭建议文字（50字以内）",
+  "clothingIds": ["推荐的衣物id数组"]
+}
+只返回 JSON，不要其他文字。`,
+    },
+  ]
+
+  const result = await callGemini(messages)
+  return JSON.parse(result.replace(/```json\n?|\n?```/g, ''))
+}
+
+// AI对话式穿搭咨询
+export async function chatWithAI(
+  userMessage: string,
+  clothes: Clothing[],
+  userProfile: UserProfile | null,
+  weather: { temp: number; text: string } | null,
+  chatHistory: Array<{ role: 'user' | 'assistant'; content: string }>
+): Promise<string> {
+  const clothesSummary = clothes.slice(0, 20).map((c) => ({
+    id: c.id,
+    name: c.name || c.type,
+    category: c.category,
+    color: c.colorPrimary,
+    warmthLevel: c.warmthLevel,
+    style: c.style,
+  }))
+
+  const systemContext = `你是一位专业的穿搭顾问AI助手。请根据用户的问题提供穿搭建议。
+
+用户信息：
+- 性别：${userProfile?.gender || '未知'}
+- 身材类型：${userProfile?.bodyType || '标准'}
+${weather ? `- 当前天气：${weather.temp}°C，${weather.text}` : ''}
+
+用户衣橱（部分）：
+${JSON.stringify(clothesSummary, null, 2)}
+
+请用简洁友好的语气回答，每次回复控制在100字以内。如果推荐具体衣物，请提及衣物名称。`
+
+  const messages: GeminiMessage[] = [
+    { role: 'system', content: systemContext },
+    ...chatHistory.slice(-6).map((msg) => ({
+      role: msg.role as 'user' | 'assistant',
+      content: msg.content,
+    })),
+    { role: 'user', content: userMessage },
+  ]
+
+  return await callGemini(messages)
+}

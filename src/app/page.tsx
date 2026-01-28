@@ -1,11 +1,14 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { Shirt, Sparkles, Camera, TrendingUp } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { useAppStore } from '@/store'
+import { WeatherCard } from '@/components/WeatherCard'
+import { DailyOutfit } from '@/components/DailyOutfit'
+import type { WeatherData } from '@/types'
 
 const quickActions = [
   { href: '/wardrobe', label: '管理衣橱', icon: Shirt, color: 'bg-blue-500' },
@@ -15,6 +18,7 @@ const quickActions = [
 
 export default function HomePage() {
   const { clothes, outfitHistory, loadData } = useAppStore()
+  const [weather, setWeather] = useState<WeatherData | null>(null)
 
   useEffect(() => {
     loadData()
@@ -26,6 +30,12 @@ export default function HomePage() {
       <div className="text-center py-8">
         <h1 className="text-3xl font-bold mb-2">AI 穿搭推荐</h1>
         <p className="text-gray-500">让每天的穿搭都精彩</p>
+      </div>
+
+      {/* 天气和今日推荐 */}
+      <div className="grid gap-4 md:grid-cols-2">
+        <WeatherCard onWeatherLoad={setWeather} />
+        <DailyOutfit weather={weather} />
       </div>
 
       {/* 快捷操作 */}
