@@ -161,6 +161,26 @@ function getClothingStyle(level: string): { color: string; emoji: string } {
 
 const occasions = ['日常', '工作', '约会', '运动', '聚会', '正式场合']
 
+// 初始化时从缓存获取推荐（用于 useState 初始值）
+function getInitialRecommendations(occasion: string): {
+  recommendations: OutfitRecommendation[]
+  isFromCache: boolean
+  cacheTime: number | null
+} {
+  if (typeof window === 'undefined') {
+    return { recommendations: [], isFromCache: false, cacheTime: null }
+  }
+  const cached = getCachedRecommendations(occasion)
+  if (cached) {
+    return {
+      recommendations: cached.recommendations,
+      isFromCache: true,
+      cacheTime: cached.cachedAt,
+    }
+  }
+  return { recommendations: [], isFromCache: false, cacheTime: null }
+}
+
 export default function RecommendPage() {
   const { clothes, userProfile, loadData, addOutfitHistory } = useAppStore()
   const [occasion, setOccasion] = useState('日常')
@@ -171,14 +191,25 @@ export default function RecommendPage() {
   const [recommendations, setRecommendations] = useState<OutfitRecommendation[]>([])
   const [isFromCache, setIsFromCache] = useState(false)
   const [cacheTime, setCacheTime] = useState<number | null>(null)
+  const [isInitialized, setIsInitialized] = useState(false)
 
+  // 组件挂载时初始化
   useEffect(() => {
     loadData()
     fetchWeather()
+
+    // 初始化时加载缓存
+    const initial = getInitialRecommendations('日常')
+    setRecommendations(initial.recommendations)
+    setIsFromCache(initial.isFromCache)
+    setCacheTime(initial.cacheTime)
+    setIsInitialized(true)
   }, [loadData])
 
-  // 当场合改变时，尝试加载缓存
+  // 场合改变时加载对应缓存
   useEffect(() => {
+    if (!isInitialized) return // 跳过初始化阶段
+
     const cached = getCachedRecommendations(occasion)
     if (cached) {
       setRecommendations(cached.recommendations)
@@ -189,7 +220,7 @@ export default function RecommendPage() {
       setIsFromCache(false)
       setCacheTime(null)
     }
-  }, [occasion])
+  }, [occasion, isInitialized])
 
   const fetchWeather = async (forceRefresh = false) => {
     setWeatherLoading(true)
