@@ -47,15 +47,11 @@ function getCachedRecommendations(occasion: string): CachedRecommendation | null
 
     const cache: RecommendationsCache = JSON.parse(cached)
     const data = cache[occasion]
-
     if (!data) return null
 
     // 检查是否是今天的缓存
     const today = getTodayString()
-    if (data.date !== today) {
-      // 清除过期缓存（读取时不写回，避免副作用）
-      return null
-    }
+    if (data.date !== today) return null
 
     return data
   } catch {
@@ -101,7 +97,6 @@ function cacheRecommendations(
     localStorage.setItem(CACHE_KEY, JSON.stringify(cache))
     return true
   } catch {
-    // localStorage 写入失败（配额满、隐私模式等）
     return false
   }
 }
@@ -214,7 +209,8 @@ export default function RecommendPage() {
   // 使用惰性初始化读取缓存的推荐
   const [recommendations, setRecommendations] = useState<OutfitRecommendation[]>(() => {
     if (typeof window === 'undefined') return []
-    const cached = getCachedRecommendations(getLastOccasion())
+    const lastOccasion = getLastOccasion()
+    const cached = getCachedRecommendations(lastOccasion)
     return cached ? cached.recommendations : []
   })
 
