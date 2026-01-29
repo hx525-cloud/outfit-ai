@@ -14,6 +14,7 @@ import type { Clothing, OutfitRecommendation, WeatherData } from '@/types'
 
 // 缓存相关常量和类型
 const CACHE_KEY = 'outfit-recommendations-cache'
+const LAST_OCCASION_KEY = 'outfit-last-occasion'
 
 interface CachedRecommendation {
   date: string // YYYY-MM-DD
@@ -46,7 +47,8 @@ function getCachedRecommendations(occasion: string): CachedRecommendation | null
     if (!data) return null
 
     // 检查是否是今天的缓存
-    if (data.date !== getTodayString()) {
+    const today = getTodayString()
+    if (data.date !== today) {
       // 清除过期缓存
       delete cache[occasion]
       localStorage.setItem(CACHE_KEY, JSON.stringify(cache))
@@ -161,6 +163,18 @@ function getClothingStyle(level: string): { color: string; emoji: string } {
 
 const occasions = ['日常', '工作', '约会', '运动', '聚会', '正式场合']
 
+// 获取上次选择的场合
+function getLastOccasion(): string {
+  if (typeof window === 'undefined') return '日常'
+  return localStorage.getItem(LAST_OCCASION_KEY) || '日常'
+}
+
+// 保存选择的场合
+function saveLastOccasion(occasion: string): void {
+  if (typeof window === 'undefined') return
+  localStorage.setItem(LAST_OCCASION_KEY, occasion)
+}
+
 // 初始化时从缓存获取推荐（用于 useState 初始值）
 function getInitialRecommendations(occasion: string): {
   recommendations: OutfitRecommendation[]
@@ -198,17 +212,26 @@ export default function RecommendPage() {
     loadData()
     fetchWeather()
 
-    // 初始化时加载缓存
-    const initial = getInitialRecommendations('日常')
+    // 恢复上次选择的场合并加载缓存
+    const lastOccasion = getLastOccasion()
+    const initial = getInitialRecommendations(lastOccasion)
+
+    // 批量更新状态，避免竞态条件
+    setOccasion(lastOccasion)
     setRecommendations(initial.recommendations)
     setIsFromCache(initial.isFromCache)
     setCacheTime(initial.cacheTime)
-    setIsInitialized(true)
+
+    // 标记初始化完成（延迟一点确保状态已更新）
+    setTimeout(() => setIsInitialized(true), 0)
   }, [loadData])
 
-  // 场合改变时加载对应缓存
+  // 场合改变时加载对应缓存并保存选择（仅在初始化完成后）
   useEffect(() => {
-    if (!isInitialized) return // 跳过初始化阶段
+    if (!isInitialized) return
+
+    // 保存选择的场合
+    saveLastOccasion(occasion)
 
     const cached = getCachedRecommendations(occasion)
     if (cached) {
