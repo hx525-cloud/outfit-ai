@@ -95,7 +95,8 @@ export function getClothingLevel(temp: number): string {
   return '严寒'
 }
 
-// 获取天气图标URL
+// 获取天气图标URL（使用和风天气官方图标）
 export function getWeatherIconUrl(icon: string): string {
-  return `https://a.hecdn.net/img/common/icon/202106d/${icon}.png`
+  // 和风天气官方图标 CDN
+  return `https://icons.qweather.com/assets/icons/${icon}.svg`
 }

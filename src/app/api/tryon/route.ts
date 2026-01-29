@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 
+// 试衣专用 API - 固定使用 gpt-4o-image 模型
 export async function POST(request: NextRequest) {
   try {
     const { messages } = await request.json()
 
     const baseUrl = process.env.GEMINI_BASE_URL
     const apiKey = process.env.GEMINI_API_KEY
-    const model = process.env.GEMINI_MODEL || 'gemini-2.0-flash'
+    // 试衣功能固定使用 gpt-4o-image 模型
+    const model = 'gpt-4o-image'
 
     if (!baseUrl || !apiKey) {
       return NextResponse.json(
@@ -44,7 +46,7 @@ export async function POST(request: NextRequest) {
     const data = await response.json()
     return NextResponse.json(data)
   } catch (error) {
-    console.error('Gemini API 错误:', error)
+    console.error('Try-on API 错误:', error)
     return NextResponse.json(
       { error: '服务器内部错误' },
       { status: 500 }

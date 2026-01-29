@@ -1,6 +1,7 @@
 import type { AIRecognitionResult, Clothing, UserProfile, OutfitRecommendation } from '@/types'
 
 const API_ENDPOINT = '/api/gemini'
+const TRYON_API_ENDPOINT = '/api/tryon'
 
 interface GeminiMessage {
   role: 'user' | 'assistant' | 'system'
@@ -126,7 +127,7 @@ ${JSON.stringify(clothesSummary, null, 2)}
   return JSON.parse(result.replace(/```json\n?|\n?```/g, ''))
 }
 
-// 虚拟试衣
+// 虚拟试衣 - 使用专用的 gpt-4o-image 模型
 export async function virtualTryOn(
   personImageBlob: Blob,
   clothingImageBlob: Blob
@@ -154,8 +155,19 @@ export async function virtualTryOn(
     },
   ]
 
-  // 返回生成的图片 base64
-  return await callGemini(messages)
+  // 使用试衣专用 API（gpt-4o-image 模型）
+  const response = await fetch(TRYON_API_ENDPOINT, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ messages }),
+  })
+
+  if (!response.ok) {
+    throw new Error(`试衣 API 请求失败: ${response.status}`)
+  }
+
+  const data = await response.json()
+  return data.choices[0].message.content
 }
 
 // 获取每日穿搭推荐
@@ -223,6 +235,8 @@ export async function chatWithAI(
 
   const systemContext = `你是一位专业的穿搭顾问AI助手。请根据用户的问题提供穿搭建议。
 
+【重要】请始终使用中文回复用户！
+
 用户信息：
 - 性别：${userProfile?.gender || '未知'}
 - 身材类型：${userProfile?.bodyType || '标准'}
@@ -231,7 +245,7 @@ ${weather ? `- 当前天气：${weather.temp}°C，${weather.text}` : ''}
 用户衣橱（部分）：
 ${JSON.stringify(clothesSummary, null, 2)}
 
-请用简洁友好的语气回答，每次回复控制在100字以内。如果推荐具体衣物，请提及衣物名称。`
+请用简洁友好的中文语气回答，每次回复控制在100字以内。如果推荐具体衣物，请提及衣物名称。`
 
   const messages: GeminiMessage[] = [
     { role: 'system', content: systemContext },
