@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Sparkles, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -11,7 +11,44 @@ import { toast } from 'sonner'
 import { useAppStore } from '@/store'
 import { getOutfitRecommendations } from '@/lib/gemini'
 import { generateId } from '@/lib/utils'
-import type { OutfitRecommendation } from '@/types'
+import type { Clothing, OutfitRecommendation } from '@/types'
+
+// 衣物缩略图组件
+function ClothingThumbnail({ clothing }: { clothing: Clothing }) {
+  const imageUrl = useMemo(() => {
+    if (clothing.thumbnailBlob) {
+      return URL.createObjectURL(clothing.thumbnailBlob)
+    }
+    return null
+  }, [clothing.thumbnailBlob])
+
+  useEffect(() => {
+    return () => {
+      if (imageUrl) {
+        URL.revokeObjectURL(imageUrl)
+      }
+    }
+  }, [imageUrl])
+
+  return (
+    <div className="flex-shrink-0 w-20">
+      <div className="aspect-square bg-gray-100 rounded-lg overflow-hidden">
+        {imageUrl ? (
+          <img
+            src={imageUrl}
+            alt={clothing.name || clothing.type}
+            className="w-full h-full object-cover"
+          />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-xs text-gray-500">
+            {clothing.type}
+          </div>
+        )}
+      </div>
+      <p className="text-xs text-center mt-1 truncate">{clothing.name || clothing.type}</p>
+    </div>
+  )
+}
 
 const occasions = ['日常', '工作', '约会', '运动', '聚会', '正式场合']
 const weathers = ['晴天', '多云', '阴天', '小雨', '大雨', '雪天', '大风']
@@ -124,14 +161,7 @@ export default function RecommendPage() {
                   {rec.clothingIds.map((id) => {
                     const clothing = getClothingById(id)
                     if (!clothing) return null
-                    return (
-                      <div key={id} className="flex-shrink-0 w-20">
-                        <div className="aspect-square bg-gray-100 rounded-lg overflow-hidden flex items-center justify-center text-xs text-gray-500">
-                          {clothing.type}
-                        </div>
-                        <p className="text-xs text-center mt-1 truncate">{clothing.type}</p>
-                      </div>
-                    )
+                    return <ClothingThumbnail key={id} clothing={clothing} />
                   })}
                 </div>
                 {/* 推荐理由 */}

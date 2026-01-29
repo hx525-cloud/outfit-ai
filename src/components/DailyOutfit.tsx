@@ -1,14 +1,51 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Sparkles, Loader2, RefreshCw } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { useAppStore } from '@/store'
 import { getDailyRecommendation } from '@/lib/gemini'
-import type { WeatherData, DailyRecommendation } from '@/types'
+import type { WeatherData, DailyRecommendation, Clothing } from '@/types'
 
 const CACHE_KEY = 'outfit-daily-recommendation'
+
+// 衣物缩略图组件
+function ClothingMiniThumbnail({ clothing }: { clothing: Clothing }) {
+  const imageUrl = useMemo(() => {
+    if (clothing.thumbnailBlob) {
+      return URL.createObjectURL(clothing.thumbnailBlob)
+    }
+    return null
+  }, [clothing.thumbnailBlob])
+
+  useEffect(() => {
+    return () => {
+      if (imageUrl) {
+        URL.revokeObjectURL(imageUrl)
+      }
+    }
+  }, [imageUrl])
+
+  return (
+    <div className="flex-shrink-0 w-14">
+      <div className="aspect-square bg-gray-100 rounded-lg overflow-hidden">
+        {imageUrl ? (
+          <img
+            src={imageUrl}
+            alt={clothing.name || clothing.type}
+            className="w-full h-full object-cover"
+          />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-xs text-gray-500">
+            {clothing.type.slice(0, 2)}
+          </div>
+        )}
+      </div>
+      <p className="text-xs text-center mt-1 truncate text-gray-600">{clothing.name || clothing.type}</p>
+    </div>
+  )
+}
 
 interface DailyOutfitProps {
   weather: WeatherData | null
@@ -119,14 +156,10 @@ export function DailyOutfit({ weather }: DailyOutfitProps) {
           <div className="space-y-3">
             <p className="text-sm text-gray-700 leading-relaxed">{recommendation.recommendation}</p>
             {recommendation.clothingIds.length > 0 && (
-              <div className="flex flex-wrap gap-2">
+              <div className="flex gap-2 overflow-x-auto pb-1">
                 {recommendation.clothingIds.map((id) => {
                   const item = clothes.find((c) => c.id === id)
-                  return item ? (
-                    <span key={id} className="px-2 py-1 bg-primary/10 text-primary text-xs rounded-full">
-                      {item.name || item.type}
-                    </span>
-                  ) : null
+                  return item ? <ClothingMiniThumbnail key={id} clothing={item} /> : null
                 })}
               </div>
             )}
