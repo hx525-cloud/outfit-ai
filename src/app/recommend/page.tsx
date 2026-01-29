@@ -204,30 +204,42 @@ function getInitialRecommendations(occasion: string): {
 
 export default function RecommendPage() {
   const { clothes, userProfile, loadData, addOutfitHistory } = useAppStore()
-  const [occasion, setOccasion] = useState('日常')
+
+  // 使用惰性初始化，确保从 localStorage 正确读取初始值
+  const [occasion, setOccasion] = useState(() => {
+    if (typeof window === 'undefined') return '日常'
+    return getLastOccasion()
+  })
+
+  // 使用惰性初始化读取缓存的推荐
+  const [recommendations, setRecommendations] = useState<OutfitRecommendation[]>(() => {
+    if (typeof window === 'undefined') return []
+    const cached = getCachedRecommendations(getLastOccasion())
+    return cached ? cached.recommendations : []
+  })
+
+  const [isFromCache, setIsFromCache] = useState(() => {
+    if (typeof window === 'undefined') return false
+    const cached = getCachedRecommendations(getLastOccasion())
+    return cached !== null
+  })
+
+  const [cacheTime, setCacheTime] = useState<number | null>(() => {
+    if (typeof window === 'undefined') return null
+    const cached = getCachedRecommendations(getLastOccasion())
+    return cached ? cached.cachedAt : null
+  })
+
   const [weather, setWeather] = useState<WeatherData | null>(null)
   const [weatherLoading, setWeatherLoading] = useState(true)
   const [weatherError, setWeatherError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
-  const [recommendations, setRecommendations] = useState<OutfitRecommendation[]>([])
-  const [isFromCache, setIsFromCache] = useState(false)
-  const [cacheTime, setCacheTime] = useState<number | null>(null)
   const [isInitialized, setIsInitialized] = useState(false)
 
   // 组件挂载时初始化
   useEffect(() => {
     loadData()
     fetchWeather()
-
-    // 恢复上次选择的场合并加载缓存
-    const lastOccasion = getLastOccasion()
-    const initial = getInitialRecommendations(lastOccasion)
-
-    // 批量更新状态
-    setOccasion(lastOccasion)
-    setRecommendations(initial.recommendations)
-    setIsFromCache(initial.isFromCache)
-    setCacheTime(initial.cacheTime)
     setIsInitialized(true)
   }, [loadData])
 
