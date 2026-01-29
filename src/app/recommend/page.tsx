@@ -28,19 +28,23 @@ interface RecommendationsCache {
   [occasion: string]: CachedRecommendation
 }
 
-// 获取今天的日期字符串
+// 获取今天的日期字符串（使用本地时间，避免UTC时区问题）
 function getTodayString(): string {
-  return new Date().toISOString().split('T')[0]
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const day = String(now.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
 // 从缓存获取推荐
 function getCachedRecommendations(occasion: string): CachedRecommendation | null {
   if (typeof window === 'undefined') return null
 
-  const cached = localStorage.getItem(CACHE_KEY)
-  if (!cached) return null
-
   try {
+    const cached = localStorage.getItem(CACHE_KEY)
+    if (!cached) return null
+
     const cache: RecommendationsCache = JSON.parse(cached)
     const data = cache[occasion]
 
@@ -49,15 +53,12 @@ function getCachedRecommendations(occasion: string): CachedRecommendation | null
     // 检查是否是今天的缓存
     const today = getTodayString()
     if (data.date !== today) {
-      // 清除过期缓存
-      delete cache[occasion]
-      localStorage.setItem(CACHE_KEY, JSON.stringify(cache))
+      // 清除过期缓存（读取时不写回，避免副作用）
       return null
     }
 
     return data
   } catch {
-    localStorage.removeItem(CACHE_KEY)
     return null
   }
 }
@@ -67,36 +68,42 @@ function cacheRecommendations(
   occasion: string,
   recommendations: OutfitRecommendation[],
   weather: { temp: number; text: string }
-): void {
-  if (typeof window === 'undefined') return
+): boolean {
+  if (typeof window === 'undefined') return false
 
-  let cache: RecommendationsCache = {}
+  try {
+    let cache: RecommendationsCache = {}
 
-  const existing = localStorage.getItem(CACHE_KEY)
-  if (existing) {
-    try {
-      cache = JSON.parse(existing)
-      // 清除过期的缓存条目
-      const today = getTodayString()
-      Object.keys(cache).forEach((key) => {
-        if (cache[key].date !== today) {
-          delete cache[key]
-        }
-      })
-    } catch {
-      cache = {}
+    const existing = localStorage.getItem(CACHE_KEY)
+    if (existing) {
+      try {
+        cache = JSON.parse(existing)
+        // 清除过期的缓存条目
+        const today = getTodayString()
+        Object.keys(cache).forEach((key) => {
+          if (cache[key].date !== today) {
+            delete cache[key]
+          }
+        })
+      } catch {
+        cache = {}
+      }
     }
-  }
 
-  cache[occasion] = {
-    date: getTodayString(),
-    occasion,
-    recommendations,
-    weather,
-    cachedAt: Date.now(),
-  }
+    cache[occasion] = {
+      date: getTodayString(),
+      occasion,
+      recommendations,
+      weather,
+      cachedAt: Date.now(),
+    }
 
-  localStorage.setItem(CACHE_KEY, JSON.stringify(cache))
+    localStorage.setItem(CACHE_KEY, JSON.stringify(cache))
+    return true
+  } catch {
+    // localStorage 写入失败（配额满、隐私模式等）
+    return false
+  }
 }
 
 // 衣物缩略图组件
@@ -216,14 +223,12 @@ export default function RecommendPage() {
     const lastOccasion = getLastOccasion()
     const initial = getInitialRecommendations(lastOccasion)
 
-    // 批量更新状态，避免竞态条件
+    // 批量更新状态
     setOccasion(lastOccasion)
     setRecommendations(initial.recommendations)
     setIsFromCache(initial.isFromCache)
     setCacheTime(initial.cacheTime)
-
-    // 标记初始化完成（延迟一点确保状态已更新）
-    setTimeout(() => setIsInitialized(true), 0)
+    setIsInitialized(true)
   }, [loadData])
 
   // 场合改变时加载对应缓存并保存选择（仅在初始化完成后）
@@ -298,11 +303,14 @@ export default function RecommendPage() {
         weather.current.text
       )
       setRecommendations(results)
-      // 保存到缓存
-      cacheRecommendations(occasion, results, {
+      // 保存到缓存，同时保存当前场合
+      const cached = cacheRecommendations(occasion, results, {
         temp: weather.current.temp,
         text: weather.current.text,
       })
+      if (cached) {
+        saveLastOccasion(occasion)
+      }
       setCacheTime(Date.now())
       toast.success('推荐生成成功！')
     } catch (error) {
