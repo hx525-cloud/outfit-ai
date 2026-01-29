@@ -1,17 +1,16 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
-import { Sparkles, Loader2 } from 'lucide-react'
+import { Sparkles, Loader2, MapPin, Thermometer, Droplets, Wind, RefreshCw, Cloud } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { toast } from 'sonner'
 import { useAppStore } from '@/store'
 import { getOutfitRecommendations } from '@/lib/gemini'
 import { generateId } from '@/lib/utils'
-import type { Clothing, OutfitRecommendation } from '@/types'
+import { getWeather, getWeatherIconUrl, getClothingLevel } from '@/lib/weather'
+import type { Clothing, OutfitRecommendation, WeatherData } from '@/types'
 
 // 衣物缩略图组件
 function ClothingThumbnail({ clothing }: { clothing: Clothing }) {
@@ -50,20 +49,62 @@ function ClothingThumbnail({ clothing }: { clothing: Clothing }) {
   )
 }
 
+// 根据天气文字获取背景渐变
+function getWeatherGradient(text: string): string {
+  if (text.includes('晴')) return 'from-orange-400 via-amber-300 to-yellow-200'
+  if (text.includes('云') || text.includes('阴')) return 'from-slate-400 via-slate-300 to-gray-200'
+  if (text.includes('雨')) return 'from-blue-500 via-blue-400 to-cyan-300'
+  if (text.includes('雪')) return 'from-blue-200 via-slate-200 to-white'
+  if (text.includes('雷')) return 'from-purple-600 via-purple-400 to-indigo-300'
+  if (text.includes('雾') || text.includes('霾')) return 'from-gray-400 via-gray-300 to-gray-200'
+  return 'from-sky-400 via-sky-300 to-blue-200'
+}
+
+// 穿衣等级对应的颜色和 emoji
+function getClothingStyle(level: string): { color: string; emoji: string } {
+  switch (level) {
+    case '炎热': return { color: 'bg-red-500', emoji: '🥵' }
+    case '温暖': return { color: 'bg-orange-400', emoji: '😎' }
+    case '舒适': return { color: 'bg-green-400', emoji: '😊' }
+    case '微凉': return { color: 'bg-cyan-400', emoji: '🙂' }
+    case '凉爽': return { color: 'bg-blue-400', emoji: '😌' }
+    case '寒冷': return { color: 'bg-indigo-500', emoji: '🥶' }
+    case '严寒': return { color: 'bg-purple-600', emoji: '❄️' }
+    default: return { color: 'bg-gray-400', emoji: '🌡️' }
+  }
+}
+
 const occasions = ['日常', '工作', '约会', '运动', '聚会', '正式场合']
-const weathers = ['晴天', '多云', '阴天', '小雨', '大雨', '雪天', '大风']
 
 export default function RecommendPage() {
   const { clothes, userProfile, loadData, addOutfitHistory } = useAppStore()
   const [occasion, setOccasion] = useState('日常')
-  const [temperature, setTemperature] = useState(20)
-  const [weather, setWeather] = useState('晴天')
+  const [weather, setWeather] = useState<WeatherData | null>(null)
+  const [weatherLoading, setWeatherLoading] = useState(true)
+  const [weatherError, setWeatherError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [recommendations, setRecommendations] = useState<OutfitRecommendation[]>([])
 
   useEffect(() => {
     loadData()
+    fetchWeather()
   }, [loadData])
+
+  const fetchWeather = async (forceRefresh = false) => {
+    setWeatherLoading(true)
+    setWeatherError(null)
+    try {
+      if (forceRefresh) {
+        localStorage.removeItem('outfit-weather-cache')
+      }
+      const data = await getWeather()
+      setWeather(data)
+    } catch (err) {
+      setWeatherError(err instanceof Error ? err.message : '获取天气失败')
+    } finally {
+      setWeatherLoading(false)
+    }
+  }
 
   const handleGetRecommendations = async () => {
     if (!userProfile) {
@@ -74,10 +115,20 @@ export default function RecommendPage() {
       toast.error('衣橱衣物太少，请先添加更多衣物')
       return
     }
+    if (!weather) {
+      toast.error('天气数据加载中，请稍候')
+      return
+    }
 
     setIsLoading(true)
     try {
-      const results = await getOutfitRecommendations(clothes, userProfile, occasion, temperature, weather)
+      const results = await getOutfitRecommendations(
+        clothes,
+        userProfile,
+        occasion,
+        weather.current.temp,
+        weather.current.text
+      )
       setRecommendations(results)
       toast.success('推荐生成成功！')
     } catch (error) {
@@ -92,8 +143,8 @@ export default function RecommendPage() {
       id: generateId(),
       clothingIds: rec.clothingIds,
       occasion: rec.occasion,
-      weather,
-      temperature,
+      weather: weather?.current.text,
+      temperature: weather?.current.temp,
       aiSuggestion: rec.reason,
       createdAt: new Date(),
     })
@@ -102,46 +153,154 @@ export default function RecommendPage() {
 
   const getClothingById = (id: string) => clothes.find((c) => c.id === id)
 
+  // 渲染天气卡片内容
+  const renderWeatherCard = () => {
+    if (weatherLoading) {
+      return (
+        <Card className="overflow-hidden">
+          <CardContent className="flex items-center justify-center py-12 bg-gradient-to-br from-sky-400 to-blue-300">
+            <div className="text-center text-white">
+              <Loader2 className="w-8 h-8 animate-spin mx-auto mb-2" />
+              <span className="text-sm font-medium">获取天气中...</span>
+            </div>
+          </CardContent>
+        </Card>
+      )
+    }
+
+    if (weatherError) {
+      return (
+        <Card className="overflow-hidden">
+          <CardContent className="flex flex-col items-center justify-center py-8 bg-gradient-to-br from-gray-400 to-gray-300">
+            <Cloud className="w-12 h-12 text-white/60 mb-3" />
+            <p className="text-white/80 mb-3 text-sm">{weatherError}</p>
+            <Button variant="secondary" size="sm" onClick={() => fetchWeather(true)} className="shadow-lg">
+              <RefreshCw className="w-4 h-4 mr-1" />
+              重试
+            </Button>
+          </CardContent>
+        </Card>
+      )
+    }
+
+    if (!weather) return null
+
+    const { current, location } = weather
+    const clothingLevel = getClothingLevel(current.temp)
+    const clothingStyle = getClothingStyle(clothingLevel)
+    const gradient = getWeatherGradient(current.text)
+
+    return (
+      <Card className="overflow-hidden shadow-md">
+        {/* 天气信息区域 */}
+        <div className={`relative bg-gradient-to-br ${gradient} p-4 text-white`}>
+          {/* 顶部：位置和刷新 */}
+          <div className="flex items-center justify-between mb-3">
+            <span className="flex items-center gap-1.5 bg-white/20 backdrop-blur-sm rounded-full px-2.5 py-1 text-sm">
+              <MapPin className="w-3.5 h-3.5" />
+              <span className="font-medium">{location}</span>
+            </span>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 bg-white/20 hover:bg-white/30 backdrop-blur-sm rounded-full text-white"
+              onClick={() => fetchWeather(true)}
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+            </Button>
+          </div>
+
+          {/* 中间：温度和天气图标 */}
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-4xl font-bold tracking-tight">{current.temp}°</div>
+              <div className="text-base font-medium opacity-90">{current.text}</div>
+            </div>
+            <img
+              src={getWeatherIconUrl(current.icon)}
+              alt={current.text}
+              className="w-16 h-16 drop-shadow-lg"
+            />
+          </div>
+
+          {/* 底部：详细信息 */}
+          <div className="flex items-center gap-2 mt-3 flex-wrap">
+            <div className="flex items-center gap-1 bg-white/20 backdrop-blur-sm rounded-full px-2 py-1">
+              <Thermometer className="w-3 h-3" />
+              <span className="text-xs">体感 {current.feelsLike}°</span>
+            </div>
+            <div className="flex items-center gap-1 bg-white/20 backdrop-blur-sm rounded-full px-2 py-1">
+              <Droplets className="w-3 h-3" />
+              <span className="text-xs">{current.humidity}%</span>
+            </div>
+            <div className="flex items-center gap-1 bg-white/20 backdrop-blur-sm rounded-full px-2 py-1">
+              <Wind className="w-3 h-3" />
+              <span className="text-xs">{current.windDir} {current.windScale}级</span>
+            </div>
+          </div>
+        </div>
+
+        {/* 场合选择和推荐按钮 */}
+        <CardContent className="p-4 space-y-4">
+          {/* 穿衣建议 */}
+          <div className="flex items-center justify-between bg-gray-50 rounded-lg p-2.5">
+            <div className="flex items-center gap-2">
+              <span className="text-xl">{clothingStyle.emoji}</span>
+              <div>
+                <div className="text-xs text-gray-500">穿衣指数</div>
+                <div className="font-semibold text-sm">{clothingLevel}</div>
+              </div>
+            </div>
+            <div className={`${clothingStyle.color} text-white px-2.5 py-1 rounded-full text-xs font-medium shadow-sm`}>
+              {current.temp >= 25 ? '轻薄透气' : current.temp >= 15 ? '适当添衣' : '注意保暖'}
+            </div>
+          </div>
+
+          {/* 场合选择 */}
+          <div>
+            <label className="text-sm font-medium text-gray-700 mb-2 block">今天的场合</label>
+            <div className="flex flex-wrap gap-2">
+              {occasions.map((o) => (
+                <button
+                  key={o}
+                  onClick={() => setOccasion(o)}
+                  className={`px-3 py-1.5 rounded-full text-sm transition-all ${
+                    occasion === o
+                      ? 'bg-primary text-white shadow-md'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  {o}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* 推荐按钮 */}
+          <Button
+            onClick={handleGetRecommendations}
+            disabled={isLoading || !weather}
+            className="w-full"
+            size="lg"
+          >
+            {isLoading ? (
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+            ) : (
+              <Sparkles className="w-4 h-4 mr-2" />
+            )}
+            获取 AI 穿搭推荐
+          </Button>
+        </CardContent>
+      </Card>
+    )
+  }
+
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">穿搭推荐</h1>
 
-      {/* 条件输入 */}
-      <Card>
-        <CardHeader>
-          <CardTitle>今天的情况</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-3 gap-4">
-            <div>
-              <Label>场合</Label>
-              <Select value={occasion} onValueChange={setOccasion}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {occasions.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label>温度 (°C)</Label>
-              <Input type="number" value={temperature} onChange={(e) => setTemperature(Number(e.target.value))} />
-            </div>
-            <div>
-              <Label>天气</Label>
-              <Select value={weather} onValueChange={setWeather}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {weathers.map((w) => <SelectItem key={w} value={w}>{w}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <Button onClick={handleGetRecommendations} disabled={isLoading} className="w-full">
-            {isLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Sparkles className="w-4 h-4 mr-2" />}
-            获取 AI 推荐
-          </Button>
-        </CardContent>
-      </Card>
+      {/* 天气和场合选择卡片 */}
+      {renderWeatherCard()}
 
       {/* 推荐结果 */}
       {recommendations.length > 0 && (
@@ -176,9 +335,10 @@ export default function RecommendPage() {
       )}
 
       {/* 空状态 */}
-      {recommendations.length === 0 && !isLoading && (
+      {recommendations.length === 0 && !isLoading && weather && (
         <div className="text-center py-12 text-gray-500">
-          输入今天的情况，让 AI 为你推荐穿搭吧！
+          <Sparkles className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+          <p>选择今天的场合，让 AI 为你推荐穿搭吧！</p>
         </div>
       )}
     </div>
