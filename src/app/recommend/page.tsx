@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
-import { Sparkles, Loader2, MapPin, Thermometer, Droplets, Wind, RefreshCw, Cloud } from 'lucide-react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
+import { Sparkles, Loader2, MapPin, Thermometer, Droplets, Wind, RefreshCw, Cloud, Clock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -11,6 +11,91 @@ import { getOutfitRecommendations } from '@/lib/gemini'
 import { generateId } from '@/lib/utils'
 import { getWeather, getWeatherIconUrl, getClothingLevel } from '@/lib/weather'
 import type { Clothing, OutfitRecommendation, WeatherData } from '@/types'
+
+// 缓存相关常量和类型
+const CACHE_KEY = 'outfit-recommendations-cache'
+
+interface CachedRecommendation {
+  date: string // YYYY-MM-DD
+  occasion: string
+  recommendations: OutfitRecommendation[]
+  weather: { temp: number; text: string }
+  cachedAt: number
+}
+
+interface RecommendationsCache {
+  [occasion: string]: CachedRecommendation
+}
+
+// 获取今天的日期字符串
+function getTodayString(): string {
+  return new Date().toISOString().split('T')[0]
+}
+
+// 从缓存获取推荐
+function getCachedRecommendations(occasion: string): CachedRecommendation | null {
+  if (typeof window === 'undefined') return null
+
+  const cached = localStorage.getItem(CACHE_KEY)
+  if (!cached) return null
+
+  try {
+    const cache: RecommendationsCache = JSON.parse(cached)
+    const data = cache[occasion]
+
+    if (!data) return null
+
+    // 检查是否是今天的缓存
+    if (data.date !== getTodayString()) {
+      // 清除过期缓存
+      delete cache[occasion]
+      localStorage.setItem(CACHE_KEY, JSON.stringify(cache))
+      return null
+    }
+
+    return data
+  } catch {
+    localStorage.removeItem(CACHE_KEY)
+    return null
+  }
+}
+
+// 保存推荐到缓存
+function cacheRecommendations(
+  occasion: string,
+  recommendations: OutfitRecommendation[],
+  weather: { temp: number; text: string }
+): void {
+  if (typeof window === 'undefined') return
+
+  let cache: RecommendationsCache = {}
+
+  const existing = localStorage.getItem(CACHE_KEY)
+  if (existing) {
+    try {
+      cache = JSON.parse(existing)
+      // 清除过期的缓存条目
+      const today = getTodayString()
+      Object.keys(cache).forEach((key) => {
+        if (cache[key].date !== today) {
+          delete cache[key]
+        }
+      })
+    } catch {
+      cache = {}
+    }
+  }
+
+  cache[occasion] = {
+    date: getTodayString(),
+    occasion,
+    recommendations,
+    weather,
+    cachedAt: Date.now(),
+  }
+
+  localStorage.setItem(CACHE_KEY, JSON.stringify(cache))
+}
 
 // 衣物缩略图组件
 function ClothingThumbnail({ clothing }: { clothing: Clothing }) {
@@ -84,11 +169,27 @@ export default function RecommendPage() {
   const [weatherError, setWeatherError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [recommendations, setRecommendations] = useState<OutfitRecommendation[]>([])
+  const [isFromCache, setIsFromCache] = useState(false)
+  const [cacheTime, setCacheTime] = useState<number | null>(null)
 
   useEffect(() => {
     loadData()
     fetchWeather()
   }, [loadData])
+
+  // 当场合改变时，尝试加载缓存
+  useEffect(() => {
+    const cached = getCachedRecommendations(occasion)
+    if (cached) {
+      setRecommendations(cached.recommendations)
+      setIsFromCache(true)
+      setCacheTime(cached.cachedAt)
+    } else {
+      setRecommendations([])
+      setIsFromCache(false)
+      setCacheTime(null)
+    }
+  }, [occasion])
 
   const fetchWeather = async (forceRefresh = false) => {
     setWeatherLoading(true)
@@ -106,7 +207,7 @@ export default function RecommendPage() {
     }
   }
 
-  const handleGetRecommendations = async () => {
+  const handleGetRecommendations = async (forceRefresh = false) => {
     if (!userProfile) {
       toast.error('请先完善个人资料')
       return
@@ -120,7 +221,20 @@ export default function RecommendPage() {
       return
     }
 
+    // 如果不是强制刷新，先检查缓存
+    if (!forceRefresh) {
+      const cached = getCachedRecommendations(occasion)
+      if (cached) {
+        setRecommendations(cached.recommendations)
+        setIsFromCache(true)
+        setCacheTime(cached.cachedAt)
+        toast.success('已加载缓存的推荐')
+        return
+      }
+    }
+
     setIsLoading(true)
+    setIsFromCache(false)
     try {
       const results = await getOutfitRecommendations(
         clothes,
@@ -130,6 +244,12 @@ export default function RecommendPage() {
         weather.current.text
       )
       setRecommendations(results)
+      // 保存到缓存
+      cacheRecommendations(occasion, results, {
+        temp: weather.current.temp,
+        text: weather.current.text,
+      })
+      setCacheTime(Date.now())
       toast.success('推荐生成成功！')
     } catch (error) {
       toast.error(`推荐失败: ${String(error)}`)
@@ -152,6 +272,12 @@ export default function RecommendPage() {
   }
 
   const getClothingById = (id: string) => clothes.find((c) => c.id === id)
+
+  // 格式化缓存时间
+  const formatCacheTime = (timestamp: number): string => {
+    const date = new Date(timestamp)
+    return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+  }
 
   // 渲染天气卡片内容
   const renderWeatherCard = () => {
@@ -278,7 +404,7 @@ export default function RecommendPage() {
 
           {/* 推荐按钮 */}
           <Button
-            onClick={handleGetRecommendations}
+            onClick={() => handleGetRecommendations(false)}
             disabled={isLoading || !weather}
             className="w-full"
             size="lg"
@@ -305,7 +431,31 @@ export default function RecommendPage() {
       {/* 推荐结果 */}
       {recommendations.length > 0 && (
         <div className="space-y-4">
-          <h2 className="text-lg font-semibold">为你推荐</h2>
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold">为你推荐</h2>
+            <div className="flex items-center gap-2">
+              {isFromCache && cacheTime && (
+                <span className="flex items-center gap-1 text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-full">
+                  <Clock className="w-3 h-3" />
+                  {formatCacheTime(cacheTime)} 缓存
+                </span>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleGetRecommendations(true)}
+                disabled={isLoading}
+                className="h-7"
+              >
+                {isLoading ? (
+                  <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                ) : (
+                  <RefreshCw className="w-3 h-3 mr-1" />
+                )}
+                重新推荐
+              </Button>
+            </div>
+          </div>
           {recommendations.map((rec, index) => (
             <Card key={rec.id}>
               <CardHeader>
